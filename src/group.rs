@@ -137,4 +137,45 @@ mod tests {
         let back: TuckmanStage = serde_json::from_str(&json).unwrap();
         assert_eq!(stage, back);
     }
+
+    #[test]
+    fn test_social_loafing_zero_group() {
+        let effort = social_loafing(0, 100.0, 0.1).unwrap();
+        assert!((effort - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_social_loafing_minimum_floor() {
+        // Very large group should hit the 10% floor
+        let effort = social_loafing(1_000_000, 100.0, 0.5).unwrap();
+        assert!((effort - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_groupthink_risk_clamping() {
+        // Out-of-range inputs should be clamped
+        let risk = groupthink_risk(1.5, -0.5, 2.0).unwrap();
+        assert!((0.0..=1.0).contains(&risk));
+    }
+
+    #[test]
+    fn test_groupthink_risk_boundaries() {
+        let zero = groupthink_risk(0.0, 0.0, 0.0).unwrap();
+        assert!(zero.abs() < 1e-10);
+        let one = groupthink_risk(1.0, 1.0, 1.0).unwrap();
+        assert!((one - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_collective_intelligence_boundaries() {
+        let zero = collective_intelligence(0.0, 0.0, 0.0).unwrap();
+        assert!(zero.abs() < 1e-10);
+        let one = collective_intelligence(1.0, 1.0, 1.0).unwrap();
+        assert!((one - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_social_loafing_nan_error() {
+        assert!(social_loafing(5, f64::NAN, 0.1).is_err());
+    }
 }

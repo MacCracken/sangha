@@ -94,4 +94,12 @@ mod tests {
         assert!(validate_positive(0.0, "x").is_err());
         assert!(validate_positive(-1.0, "x").is_err());
     }
+
+    #[test]
+    fn test_validate_non_negative() {
+        assert!(validate_non_negative(0.0, "x").is_ok());
+        assert!(validate_non_negative(1.0, "x").is_ok());
+        assert!(validate_non_negative(-0.1, "x").is_err());
+        assert!(validate_non_negative(f64::INFINITY, "x").is_err());
+    }
 }

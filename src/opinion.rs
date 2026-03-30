@@ -151,4 +151,39 @@ mod tests {
         let back: Opinion = serde_json::from_str(&json).unwrap();
         assert!((o.0 - back.0).abs() < 1e-10);
     }
+
+    #[test]
+    fn test_deffuant_at_exact_threshold() {
+        // diff == threshold: strict < means no convergence
+        let (o1, o2) = deffuant_interaction(0.3, 0.6, 0.3, 0.5).unwrap();
+        assert!((o1 - 0.3).abs() < 1e-10);
+        assert!((o2 - 0.6).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_echo_chamber_single_opinion() {
+        let idx = echo_chamber_index(&[0.5]).unwrap();
+        assert!(idx.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_echo_chamber_empty() {
+        assert!(echo_chamber_index(&[]).is_err());
+    }
+
+    #[test]
+    fn test_opinion_clamping() {
+        assert!((Opinion::new(1.5).0 - 1.0).abs() < 1e-10);
+        assert!((Opinion::new(-0.5).0 - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_has_consensus_empty() {
+        assert!(has_consensus(&[], 0.01).unwrap());
+    }
+
+    #[test]
+    fn test_deffuant_nan_error() {
+        assert!(deffuant_interaction(f64::NAN, 0.5, 0.5, 0.5).is_err());
+    }
 }

@@ -151,7 +151,8 @@ pub fn watts_strogatz_with_seed(n: usize, k: usize, beta: f64, seed: u64) -> Res
                         .wrapping_mul(6364136223846793005)
                         .wrapping_add(1442695040888963407);
                     let new_neighbor = ((state >> 33) as usize) % n;
-                    if new_neighbor != i && new_neighbor != old_neighbor {
+                    let already_connected = net.edges[i].iter().any(|&(nb, _)| nb == new_neighbor);
+                    if new_neighbor != i && new_neighbor != old_neighbor && !already_connected {
                         // Remove old edge and add new one
                         net.edges[i].retain(|&(nb, _)| nb != old_neighbor);
                         net.edges[old_neighbor].retain(|&(nb, _)| nb != i);
@@ -337,5 +338,73 @@ mod tests {
         let dist1 = super::degree_distribution(&net1);
         let dist2 = super::degree_distribution(&net2);
         assert_ne!(dist1, dist2);
+    }
+
+    #[test]
+    fn test_watts_strogatz_error_too_few_nodes() {
+        assert!(watts_strogatz(3, 2, 0.0).is_err());
+    }
+
+    #[test]
+    fn test_watts_strogatz_error_odd_k() {
+        assert!(watts_strogatz(10, 3, 0.0).is_err());
+    }
+
+    #[test]
+    fn test_watts_strogatz_error_k_ge_n() {
+        assert!(watts_strogatz(6, 6, 0.0).is_err());
+    }
+
+    #[test]
+    fn test_watts_strogatz_no_multi_edges() {
+        // With high beta, rewiring shouldn't create duplicate edges
+        let net = watts_strogatz_with_seed(10, 4, 1.0, 42).unwrap();
+        for (node, neighbors) in net.edges.iter().enumerate() {
+            let mut seen = std::collections::HashSet::new();
+            for &(nb, _) in neighbors {
+                assert!(seen.insert(nb) || nb == node, "duplicate edge {node}->{nb}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_clustering_coefficient_isolated() {
+        let net = SocialNetwork::new(5);
+        let cc = clustering_coefficient(&net, 0).unwrap();
+        assert!((cc - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_clustering_coefficient_out_of_bounds() {
+        let net = SocialNetwork::new(3);
+        assert!(clustering_coefficient(&net, 5).is_err());
+    }
+
+    #[test]
+    fn test_average_clustering_empty() {
+        let net = SocialNetwork::new(0);
+        let cc = average_clustering_coefficient(&net).unwrap();
+        assert!((cc - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_degree_distribution_empty() {
+        let net = SocialNetwork::new(0);
+        let dist = degree_distribution(&net);
+        assert!(dist.is_empty());
+    }
+
+    #[test]
+    fn test_degree_out_of_bounds() {
+        let net = SocialNetwork::new(3);
+        assert!(net.degree(5).is_err());
+    }
+
+    #[test]
+    fn test_zero_node_network() {
+        let net = SocialNetwork::new(0);
+        assert_eq!(net.node_count, 0);
+        assert_eq!(net.edge_count(), 0);
+        assert!((net.average_degree() - 0.0).abs() < 1e-10);
     }
 }

@@ -18,6 +18,11 @@ pub fn gini_coefficient(incomes: &[f64]) -> Result<f64> {
             "need at least one income value".into(),
         ));
     }
+    if incomes.iter().any(|&v| v < 0.0 || !v.is_finite()) {
+        return Err(SanghaError::ComputationError(
+            "all income values must be finite and non-negative".into(),
+        ));
+    }
 
     let n = incomes.len();
     if n == 1 {
@@ -54,6 +59,11 @@ pub fn lorenz_curve(incomes: &[f64]) -> Result<Vec<(f64, f64)>> {
     if incomes.is_empty() {
         return Err(SanghaError::ComputationError(
             "need at least one income value".into(),
+        ));
+    }
+    if incomes.iter().any(|&v| v < 0.0 || !v.is_finite()) {
+        return Err(SanghaError::ComputationError(
+            "all income values must be finite and non-negative".into(),
         ));
     }
 
@@ -138,5 +148,40 @@ mod tests {
         for &(pop, income) in &curve {
             assert!((pop - income).abs() < 1e-10);
         }
+    }
+
+    #[test]
+    fn test_gini_negative_income_error() {
+        assert!(gini_coefficient(&[10.0, -5.0, 20.0]).is_err());
+    }
+
+    #[test]
+    fn test_gini_nan_error() {
+        assert!(gini_coefficient(&[10.0, f64::NAN]).is_err());
+    }
+
+    #[test]
+    fn test_gini_all_zeros() {
+        let g = gini_coefficient(&[0.0, 0.0, 0.0]).unwrap();
+        assert!((g - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_lorenz_curve_empty_error() {
+        assert!(lorenz_curve(&[]).is_err());
+    }
+
+    #[test]
+    fn test_lorenz_curve_negative_error() {
+        assert!(lorenz_curve(&[10.0, -5.0]).is_err());
+    }
+
+    #[test]
+    fn test_lorenz_curve_single() {
+        let curve = lorenz_curve(&[100.0]).unwrap();
+        assert_eq!(curve.len(), 2);
+        assert_eq!(curve[0], (0.0, 0.0));
+        assert!((curve[1].0 - 1.0).abs() < 1e-10);
+        assert!((curve[1].1 - 1.0).abs() < 1e-10);
     }
 }

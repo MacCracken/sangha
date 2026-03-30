@@ -4,11 +4,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, validate_finite, validate_non_negative, validate_positive};
 
-/// Logistic growth: population change with carrying capacity.
+/// Logistic growth: population change rate with carrying capacity.
 ///
 /// `dN/dt = r * N * (1 - N/K)`
 ///
-/// Returns the new population after time step `dt`.
+/// Returns the instantaneous rate of population change.
+/// Use [`logistic_growth_step`] to advance the population by a time step.
 ///
 /// # Errors
 ///
@@ -223,5 +224,54 @@ mod tests {
         let json = serde_json::to_string(&state).unwrap();
         let back: SirState = serde_json::from_str(&json).unwrap();
         assert!((state.s - back.s).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_logistic_growth_step() {
+        // At half capacity with r=1, dt=0.1: N' = 50 + 25*0.1 = 52.5
+        let n = logistic_growth_step(50.0, 1.0, 100.0, 0.1).unwrap();
+        assert!((n - 52.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_logistic_growth_step_error() {
+        assert!(logistic_growth_step(50.0, 1.0, 100.0, 0.0).is_err()); // dt=0
+        assert!(logistic_growth_step(50.0, 1.0, 100.0, -1.0).is_err()); // dt<0
+    }
+
+    #[test]
+    fn test_sir_trajectory_length() {
+        let traj = sir_trajectory(0.99, 0.01, 0.0, 0.5, 0.1, 0.01, 100).unwrap();
+        assert_eq!(traj.len(), 101); // initial + 100 steps
+    }
+
+    #[test]
+    fn test_sir_trajectory_conservation() {
+        let traj = sir_trajectory(0.99, 0.01, 0.0, 0.5, 0.1, 0.01, 50).unwrap();
+        for state in &traj {
+            let total = state.s + state.i + state.r;
+            assert!((total - 1.0).abs() < 0.05);
+        }
+    }
+
+    #[test]
+    fn test_herd_immunity_r0_below_1() {
+        // R0 < 1: threshold is negative (no herd immunity needed)
+        let h = herd_immunity_threshold(0.5).unwrap();
+        assert!(h < 0.0);
+    }
+
+    #[test]
+    fn test_sir_state_new() {
+        let s = SirState::new(0.9, 0.05, 0.05);
+        assert!((s.s - 0.9).abs() < 1e-10);
+        assert!((s.i - 0.05).abs() < 1e-10);
+        assert!((s.r - 0.05).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_r_naught_error() {
+        assert!(r_naught(0.0, 0.5).is_err()); // beta=0
+        assert!(r_naught(0.5, 0.0).is_err()); // gamma=0
     }
 }

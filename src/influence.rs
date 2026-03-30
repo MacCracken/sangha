@@ -107,4 +107,34 @@ mod tests {
         let rate = bass_diffusion(1000, 1000, 0.03, 0.38).unwrap();
         assert!((rate - 0.0).abs() < 1e-10);
     }
+
+    #[test]
+    fn test_bass_diffusion_midpoint() {
+        // At 50% adoption: rate = (0.03 + 0.38*0.5) * (1-0.5) = 0.22*0.5 = 0.11
+        let rate = bass_diffusion(500, 1000, 0.03, 0.38).unwrap();
+        assert!((rate - 0.11).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_conformity_group_size_zero() {
+        // No group: size_effect = 1 - exp(0) = 0, so no pressure
+        let conforms = conformity_threshold(0.1, 0.9, 0).unwrap();
+        assert!(!conforms);
+    }
+
+    #[test]
+    fn test_social_proof_full_adoption() {
+        let w = social_proof_weight(100, 100).unwrap();
+        assert!((w - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_bass_diffusion_zero_pop() {
+        assert!(bass_diffusion(0, 0, 0.03, 0.38).is_err());
+    }
+
+    #[test]
+    fn test_conformity_nan_error() {
+        assert!(conformity_threshold(f64::NAN, 0.5, 3).is_err());
+    }
 }

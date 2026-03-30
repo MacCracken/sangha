@@ -253,4 +253,47 @@ mod tests {
         let back: NashEquilibrium = serde_json::from_str(&json).unwrap();
         assert_eq!(ne.player1, back.player1);
     }
+
+    #[test]
+    fn test_coordination_game_two_equilibria() {
+        // Coordination game: both prefer to match
+        // |        | A     | B     |
+        // |--------|-------|-------|
+        // | A      | (2,2) | (0,0) |
+        // | B      | (0,0) | (1,1) |
+        let matrix = PayoffMatrix::new([[(2.0, 2.0), (0.0, 0.0)], [(0.0, 0.0), (1.0, 1.0)]]);
+        let eq = find_nash_equilibria(&matrix);
+        assert_eq!(eq.len(), 2);
+    }
+
+    #[test]
+    fn test_iterated_pd_zero_rounds() {
+        let (s1, s2) = iterated_prisoners_dilemma(always_cooperate, always_defect, 0);
+        assert!((s1 - 0.0).abs() < 1e-10);
+        assert!((s2 - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_tit_for_tat_vs_always_defect() {
+        // Round 1: TFT cooperates, AD defects → (0, 5)
+        // Rounds 2-10: TFT defects (copies), AD defects → (1, 1) × 9
+        let (s1, s2) = iterated_prisoners_dilemma(tit_for_tat, always_defect, 10);
+        assert!((s1 - 9.0).abs() < 1e-10); // 0 + 9*1
+        assert!((s2 - 14.0).abs() < 1e-10); // 5 + 9*1
+    }
+
+    #[test]
+    fn test_payoff_matrix_new() {
+        let pm = PayoffMatrix::new([[(1.0, 2.0), (3.0, 4.0)], [(5.0, 6.0), (7.0, 8.0)]]);
+        assert_eq!(pm.payoffs[0][0], (1.0, 2.0));
+        assert_eq!(pm.payoffs[1][1], (7.0, 8.0));
+    }
+
+    #[test]
+    fn test_nash_equilibrium_new() {
+        let ne = NashEquilibrium::new(Strategy::Cooperate, Strategy::Defect, (0.0, 5.0));
+        assert_eq!(ne.player1, Strategy::Cooperate);
+        assert_eq!(ne.player2, Strategy::Defect);
+        assert_eq!(ne.payoffs, (0.0, 5.0));
+    }
 }
