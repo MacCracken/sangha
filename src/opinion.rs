@@ -2,10 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Result, SanghaError, validate_finite};
+use crate::error::{Result, SanghaError, validate_finite, validate_positive};
 
 /// Opinion state: continuous value between 0.0 and 1.0.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Opinion(pub f64);
 
 impl Opinion {
@@ -77,14 +78,19 @@ pub fn echo_chamber_index(opinions: &[f64]) -> Result<f64> {
 }
 
 /// Check if opinions have reached consensus (all within `epsilon` of mean).
+///
+/// # Errors
+///
+/// Returns error if `epsilon` is non-positive or non-finite.
 #[must_use = "returns whether consensus has been reached without side effects"]
-pub fn has_consensus(opinions: &[f64], epsilon: f64) -> bool {
+pub fn has_consensus(opinions: &[f64], epsilon: f64) -> Result<bool> {
+    validate_positive(epsilon, "epsilon")?;
     if opinions.is_empty() {
-        return true;
+        return Ok(true);
     }
     let n = opinions.len() as f64;
     let mean = opinions.iter().sum::<f64>() / n;
-    opinions.iter().all(|&o| (o - mean).abs() < epsilon)
+    Ok(opinions.iter().all(|&o| (o - mean).abs() < epsilon))
 }
 
 #[cfg(test)]
@@ -123,12 +129,19 @@ mod tests {
 
     #[test]
     fn test_has_consensus_true() {
-        assert!(has_consensus(&[0.5, 0.5, 0.5], 0.01));
+        assert!(has_consensus(&[0.5, 0.5, 0.5], 0.01).unwrap());
     }
 
     #[test]
     fn test_has_consensus_false() {
-        assert!(!has_consensus(&[0.1, 0.9], 0.01));
+        assert!(!has_consensus(&[0.1, 0.9], 0.01).unwrap());
+    }
+
+    #[test]
+    fn test_has_consensus_invalid_epsilon() {
+        assert!(has_consensus(&[0.5], -1.0).is_err());
+        assert!(has_consensus(&[0.5], 0.0).is_err());
+        assert!(has_consensus(&[0.5], f64::NAN).is_err());
     }
 
     #[test]

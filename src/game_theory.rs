@@ -7,9 +7,19 @@ use serde::{Deserialize, Serialize};
 /// `payoffs[i][j]` gives `(player1_payoff, player2_payoff)` when player 1
 /// chooses strategy `i` and player 2 chooses strategy `j`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PayoffMatrix {
     /// 2x2 matrix of (player1, player2) payoffs.
     pub payoffs: [[(f64, f64); 2]; 2],
+}
+
+impl PayoffMatrix {
+    /// Create a new payoff matrix from a 2x2 array of `(player1, player2)` payoffs.
+    #[inline]
+    #[must_use]
+    pub fn new(payoffs: [[(f64, f64); 2]; 2]) -> Self {
+        Self { payoffs }
+    }
 }
 
 /// A strategy in a game.
@@ -24,6 +34,7 @@ pub enum Strategy {
 
 /// A Nash equilibrium outcome.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct NashEquilibrium {
     /// Player 1's strategy.
     pub player1: Strategy,
@@ -31,6 +42,19 @@ pub struct NashEquilibrium {
     pub player2: Strategy,
     /// Payoffs at equilibrium.
     pub payoffs: (f64, f64),
+}
+
+impl NashEquilibrium {
+    /// Create a new Nash equilibrium.
+    #[inline]
+    #[must_use]
+    pub fn new(player1: Strategy, player2: Strategy, payoffs: (f64, f64)) -> Self {
+        Self {
+            player1,
+            player2,
+            payoffs,
+        }
+    }
 }
 
 /// Create the standard prisoner's dilemma payoff matrix.

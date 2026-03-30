@@ -37,6 +37,7 @@ pub fn logistic_growth_step(n: f64, r: f64, k: f64, dt: f64) -> Result<f64> {
 
 /// SIR compartmental model state.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SirState {
     /// Susceptible fraction (0-1).
     pub s: f64,
@@ -44,6 +45,15 @@ pub struct SirState {
     pub i: f64,
     /// Recovered fraction (0-1).
     pub r: f64,
+}
+
+impl SirState {
+    /// Create a new SIR state.
+    #[inline]
+    #[must_use]
+    pub fn new(s: f64, i: f64, r: f64) -> Self {
+        Self { s, i, r }
+    }
 }
 
 /// One step of the SIR epidemiological model.

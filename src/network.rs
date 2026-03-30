@@ -6,6 +6,7 @@ use crate::error::{Result, SanghaError};
 
 /// A social network represented as an adjacency list with weighted edges.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SocialNetwork {
     /// Number of nodes.
     pub node_count: usize,
@@ -71,12 +72,22 @@ impl SocialNetwork {
     #[inline]
     #[must_use]
     pub fn edge_count(&self) -> usize {
-        let total: usize = self.edges.iter().map(|e| e.len()).sum();
-        total / 2
+        let mut self_loops = 0;
+        let total: usize = self
+            .edges
+            .iter()
+            .enumerate()
+            .map(|(node, neighbors)| {
+                self_loops += neighbors.iter().filter(|&&(nb, _)| nb == node).count();
+                neighbors.len()
+            })
+            .sum();
+        // Undirected edges are stored twice (once per endpoint), self-loops only once.
+        (total + self_loops) / 2
     }
 }
 
-/// Generate a Watts-Strogatz small-world network.
+/// Generate a Watts-Strogatz small-world network with the default seed (42).
 ///
 /// Creates a ring lattice of `n` nodes each connected to `k` nearest neighbors,
 /// then rewires each edge with probability `beta`.
@@ -90,6 +101,18 @@ impl SocialNetwork {
 /// Returns [`SanghaError::InvalidNetwork`] if `n < 4`, `k` is odd, or `k >= n`.
 #[must_use = "returns the generated network without side effects"]
 pub fn watts_strogatz(n: usize, k: usize, beta: f64) -> Result<SocialNetwork> {
+    watts_strogatz_with_seed(n, k, beta, 42)
+}
+
+/// Generate a Watts-Strogatz small-world network with a caller-supplied PRNG seed.
+///
+/// See [`watts_strogatz`] for parameter details.
+///
+/// # Errors
+///
+/// Returns [`SanghaError::InvalidNetwork`] if `n < 4`, `k` is odd, or `k >= n`.
+#[must_use = "returns the generated network without side effects"]
+pub fn watts_strogatz_with_seed(n: usize, k: usize, beta: f64, seed: u64) -> Result<SocialNetwork> {
     if n < 4 {
         return Err(SanghaError::InvalidNetwork("need at least 4 nodes".into()));
     }
@@ -111,28 +134,28 @@ pub fn watts_strogatz(n: usize, k: usize, beta: f64) -> Result<SocialNetwork> {
         }
     }
 
-    // Rewire edges with probability beta (deterministic seed for reproducibility)
-    // Use a simple hash-based pseudo-random for no_std compatibility
+    // Rewire edges with probability beta
+    // Use a simple LCG pseudo-random for reproducibility
     if beta > 0.0 {
-        let mut seed: u64 = 42;
+        let mut state: u64 = seed;
         for i in 0..n {
             for j in 1..=half_k {
-                seed = seed
+                state = state
                     .wrapping_mul(6364136223846793005)
                     .wrapping_add(1442695040888963407);
-                let rand_val = (seed >> 33) as f64 / (u32::MAX as f64);
+                let rand_val = (state >> 33) as f64 / (u32::MAX as f64);
                 if rand_val < beta {
                     let old_neighbor = (i + j) % n;
                     // Pick a random new target
-                    seed = seed
+                    state = state
                         .wrapping_mul(6364136223846793005)
                         .wrapping_add(1442695040888963407);
-                    let new_neighbor = ((seed >> 33) as usize) % n;
+                    let new_neighbor = ((state >> 33) as usize) % n;
                     if new_neighbor != i && new_neighbor != old_neighbor {
                         // Remove old edge and add new one
                         net.edges[i].retain(|&(nb, _)| nb != old_neighbor);
                         net.edges[old_neighbor].retain(|&(nb, _)| nb != i);
-                        let _ = net.add_edge(i, new_neighbor, 1.0);
+                        net.add_edge(i, new_neighbor, 1.0)?;
                     }
                 }
             }
@@ -286,5 +309,33 @@ mod tests {
     fn test_add_edge_out_of_bounds() {
         let mut net = SocialNetwork::new(3);
         assert!(net.add_edge(0, 5, 1.0).is_err());
+    }
+
+    #[test]
+    fn test_self_loop_edge_count() {
+        let mut net = SocialNetwork::new(3);
+        net.add_edge(0, 0, 1.0).unwrap(); // self-loop
+        net.add_edge(0, 1, 1.0).unwrap(); // normal edge
+        assert_eq!(net.edge_count(), 2);
+    }
+
+    #[test]
+    fn test_watts_strogatz_with_seed_deterministic() {
+        let net1 = super::watts_strogatz_with_seed(20, 4, 0.3, 123).unwrap();
+        let net2 = super::watts_strogatz_with_seed(20, 4, 0.3, 123).unwrap();
+        assert_eq!(net1.edge_count(), net2.edge_count());
+        for i in 0..20 {
+            assert_eq!(net1.degree(i).unwrap(), net2.degree(i).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_watts_strogatz_different_seeds_differ() {
+        let net1 = super::watts_strogatz_with_seed(20, 4, 0.5, 1).unwrap();
+        let net2 = super::watts_strogatz_with_seed(20, 4, 0.5, 999).unwrap();
+        // With beta=0.5 and different seeds, degree distributions should differ
+        let dist1 = super::degree_distribution(&net1);
+        let dist2 = super::degree_distribution(&net2);
+        assert_ne!(dist1, dist2);
     }
 }
