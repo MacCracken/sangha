@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{validate_finite, Result};
+use crate::error::{Result, validate_finite};
 
 /// Tuckman's stages of group development.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -75,7 +75,11 @@ pub fn groupthink_risk(cohesion: f64, insulation: f64, leader_bias: f64) -> Resu
 ///
 /// Returns error if parameters are non-finite.
 #[must_use = "returns the collective intelligence factor without side effects"]
-pub fn collective_intelligence(diversity: f64, independence: f64, decentralization: f64) -> Result<f64> {
+pub fn collective_intelligence(
+    diversity: f64,
+    independence: f64,
+    decentralization: f64,
+) -> Result<f64> {
     validate_finite(diversity, "diversity")?;
     validate_finite(independence, "independence")?;
     validate_finite(decentralization, "decentralization")?;

@@ -1,6 +1,5 @@
 //! Error types for the sangha sociology engine.
 
-use core::fmt;
 use serde::{Deserialize, Serialize};
 
 /// Errors that can occur in sangha operations.
@@ -33,9 +32,9 @@ pub(crate) fn validate_finite(value: f64, name: &str) -> Result<()> {
     if value.is_finite() {
         Ok(())
     } else {
-        Err(SanghaError::ComputationError(fmt::format(format_args!(
+        Err(SanghaError::ComputationError(format!(
             "{name} must be finite, got {value}"
-        ))))
+        )))
     }
 }
 
@@ -46,9 +45,9 @@ pub(crate) fn validate_positive(value: f64, name: &str) -> Result<()> {
     if value > 0.0 {
         Ok(())
     } else {
-        Err(SanghaError::ComputationError(fmt::format(format_args!(
+        Err(SanghaError::ComputationError(format!(
             "{name} must be positive, got {value}"
-        ))))
+        )))
     }
 }
 
@@ -59,9 +58,9 @@ pub(crate) fn validate_non_negative(value: f64, name: &str) -> Result<()> {
     if value >= 0.0 {
         Ok(())
     } else {
-        Err(SanghaError::ComputationError(fmt::format(format_args!(
+        Err(SanghaError::ComputationError(format!(
             "{name} must be non-negative, got {value}"
-        ))))
+        )))
     }
 }
 

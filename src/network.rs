@@ -1,11 +1,8 @@
 //! Social networks — graph models, metrics, small-world properties.
 
-extern crate alloc;
-use alloc::vec::Vec;
-
 use serde::{Deserialize, Serialize};
 
-use crate::error::{SanghaError, Result};
+use crate::error::{Result, SanghaError};
 
 /// A social network represented as an adjacency list with weighted edges.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +30,9 @@ impl SocialNetwork {
     /// Returns [`SanghaError::InvalidNetwork`] if node indices are out of bounds.
     pub fn add_edge(&mut self, a: usize, b: usize, weight: f64) -> Result<()> {
         if a >= self.node_count || b >= self.node_count {
-            return Err(SanghaError::InvalidNetwork("node index out of bounds".into()));
+            return Err(SanghaError::InvalidNetwork(
+                "node index out of bounds".into(),
+            ));
         }
         self.edges[a].push((b, weight));
         if a != b {
@@ -50,7 +49,9 @@ impl SocialNetwork {
     #[must_use = "returns the degree without side effects"]
     pub fn degree(&self, node: usize) -> Result<usize> {
         if node >= self.node_count {
-            return Err(SanghaError::InvalidNetwork("node index out of bounds".into()));
+            return Err(SanghaError::InvalidNetwork(
+                "node index out of bounds".into(),
+            ));
         }
         Ok(self.edges[node].len())
     }
@@ -92,7 +93,7 @@ pub fn watts_strogatz(n: usize, k: usize, beta: f64) -> Result<SocialNetwork> {
     if n < 4 {
         return Err(SanghaError::InvalidNetwork("need at least 4 nodes".into()));
     }
-    if k % 2 != 0 || k == 0 {
+    if !k.is_multiple_of(2) || k == 0 {
         return Err(SanghaError::InvalidNetwork("k must be even and > 0".into()));
     }
     if k >= n {
@@ -116,12 +117,16 @@ pub fn watts_strogatz(n: usize, k: usize, beta: f64) -> Result<SocialNetwork> {
         let mut seed: u64 = 42;
         for i in 0..n {
             for j in 1..=half_k {
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 let rand_val = (seed >> 33) as f64 / (u32::MAX as f64);
                 if rand_val < beta {
                     let old_neighbor = (i + j) % n;
                     // Pick a random new target
-                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    seed = seed
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
                     let new_neighbor = ((seed >> 33) as usize) % n;
                     if new_neighbor != i && new_neighbor != old_neighbor {
                         // Remove old edge and add new one
@@ -143,7 +148,9 @@ pub fn watts_strogatz(n: usize, k: usize, beta: f64) -> Result<SocialNetwork> {
 #[must_use = "returns the clustering coefficient without side effects"]
 pub fn clustering_coefficient(network: &SocialNetwork, node: usize) -> Result<f64> {
     if node >= network.node_count {
-        return Err(SanghaError::InvalidNetwork("node index out of bounds".into()));
+        return Err(SanghaError::InvalidNetwork(
+            "node index out of bounds".into(),
+        ));
     }
     let neighbors: Vec<usize> = network.edges[node].iter().map(|&(n, _)| n).collect();
     let k = neighbors.len();

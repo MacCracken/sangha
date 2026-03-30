@@ -1,11 +1,8 @@
 //! Opinion dynamics — voter model, bounded confidence, polarization.
 
-extern crate alloc;
-use alloc::vec::Vec;
-
 use serde::{Deserialize, Serialize};
 
-use crate::error::{validate_finite, SanghaError, Result};
+use crate::error::{Result, SanghaError, validate_finite};
 
 /// Opinion state: continuous value between 0.0 and 1.0.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

@@ -1,8 +1,6 @@
 //! Social influence — conformity, diffusion, social proof.
 
-use serde::{Deserialize, Serialize};
-
-use crate::error::{validate_finite, validate_positive, Result};
+use crate::error::{Result, validate_finite};
 
 /// Asch-inspired conformity model.
 ///

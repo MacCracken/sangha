@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{validate_finite, validate_non_negative, validate_positive, Result};
+use crate::error::{Result, validate_finite, validate_non_negative, validate_positive};
 
 /// Logistic growth: population change with carrying capacity.
 ///
@@ -122,9 +122,8 @@ pub fn sir_trajectory(
     gamma: f64,
     dt: f64,
     steps: usize,
-) -> Result<alloc::vec::Vec<SirState>> {
-    extern crate alloc;
-    let mut trajectory = alloc::vec::Vec::with_capacity(steps + 1);
+) -> Result<Vec<SirState>> {
+    let mut trajectory = Vec::with_capacity(steps + 1);
     trajectory.push(SirState {
         s: s0,
         i: i0,

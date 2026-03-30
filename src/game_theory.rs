@@ -1,11 +1,6 @@
 //! Game theory — Nash equilibria, prisoner's dilemma, evolutionary strategies.
 
-extern crate alloc;
-use alloc::vec::Vec;
-
 use serde::{Deserialize, Serialize};
-
-use crate::error::{SanghaError, Result};
 
 /// A 2x2 payoff matrix for two-player games.
 ///

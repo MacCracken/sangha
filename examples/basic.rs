@@ -9,7 +9,7 @@ fn main() {
     // SIR model
     let r0 = sangha::population::r_naught(0.5, 0.2).unwrap();
     let h = sangha::population::herd_immunity_threshold(r0).unwrap();
-    println!("R0 = {r0:.1}, herd immunity threshold = {h:.1%}");
+    println!("R0 = {r0:.1}, herd immunity threshold = {:.1}%", h * 100.0);
 
     // Prisoner's dilemma
     let pd = sangha::game_theory::prisoners_dilemma();

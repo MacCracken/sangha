@@ -1,9 +1,6 @@
 //! Inequality — Gini coefficient, Lorenz curve, distribution metrics.
 
-extern crate alloc;
-use alloc::vec::Vec;
-
-use crate::error::{SanghaError, Result};
+use crate::error::{Result, SanghaError};
 
 /// Gini coefficient: measure of income/wealth inequality.
 ///

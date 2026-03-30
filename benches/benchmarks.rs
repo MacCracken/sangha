@@ -1,4 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 
 fn bench_gini(c: &mut Criterion) {
     let incomes: Vec<f64> = (1..=100).map(|x| x as f64).collect();
@@ -24,7 +25,9 @@ fn bench_sir_step(c: &mut Criterion) {
 
 fn bench_logistic_growth(c: &mut Criterion) {
     c.bench_function("population/logistic_growth", |b| {
-        b.iter(|| sangha::population::logistic_growth(black_box(500.0), black_box(0.5), black_box(1000.0)))
+        b.iter(|| {
+            sangha::population::logistic_growth(black_box(500.0), black_box(0.5), black_box(1000.0))
+        })
     });
 }
 
