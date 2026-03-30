@@ -40,6 +40,31 @@ impl EmotionalState {
             susceptibility,
         })
     }
+
+    /// Validate that this state is well-formed.
+    ///
+    /// Call this after deserialization to ensure invariants hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if values are non-finite or outside `[0, 1]`.
+    pub fn validate(&self) -> Result<()> {
+        validate_finite(self.valence, "valence")?;
+        validate_finite(self.susceptibility, "susceptibility")?;
+        if !(0.0..=1.0).contains(&self.valence) {
+            return Err(SanghaError::ComputationError(format!(
+                "valence must be in [0, 1], got {}",
+                self.valence
+            )));
+        }
+        if !(0.0..=1.0).contains(&self.susceptibility) {
+            return Err(SanghaError::ComputationError(format!(
+                "susceptibility must be in [0, 1], got {}",
+                self.susceptibility
+            )));
+        }
+        Ok(())
+    }
 }
 
 /// SIS (Susceptible-Infected-Susceptible) compartmental state.
@@ -56,10 +81,21 @@ pub struct SisState {
 
 impl SisState {
     /// Create a new SIS state.
-    #[inline]
-    #[must_use]
-    pub fn new(s: f64, i: f64) -> Self {
-        Self { s, i }
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `s` or `i` are negative, non-finite, or `s + i` deviates
+    /// from 1.0 by more than 1e-6.
+    pub fn new(s: f64, i: f64) -> Result<Self> {
+        validate_non_negative(s, "s")?;
+        validate_non_negative(i, "i")?;
+        let total = s + i;
+        if (total - 1.0).abs() > 1e-6 {
+            return Err(SanghaError::ComputationError(format!(
+                "s + i must equal 1.0, got {total}"
+            )));
+        }
+        Ok(Self { s, i })
     }
 }
 
@@ -69,7 +105,8 @@ impl SisState {
 pub struct HatfieldConfig {
     /// Rate of emotional mimicry (0.0 to 1.0).
     pub mimicry_rate: f64,
-    /// Feedback strength: how much expressed emotion feeds back to felt emotion.
+    /// Feedback strength: how much the neighbor-weighted average emotion feeds
+    /// back to the agent's felt emotion (0.0 = no feedback, 1.0 = strong).
     pub feedback_strength: f64,
 }
 
@@ -87,15 +124,30 @@ impl HatfieldConfig {
             feedback_strength,
         })
     }
+
+    /// Validate that this config is well-formed.
+    ///
+    /// Call this after deserialization to ensure invariants hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if values are non-finite or negative.
+    pub fn validate(&self) -> Result<()> {
+        validate_non_negative(self.mimicry_rate, "mimicry_rate")?;
+        validate_non_negative(self.feedback_strength, "feedback_strength")
+    }
 }
 
 /// One step of the Hatfield emotional contagion model on a weighted network.
 ///
 /// For each agent `i`:
 /// ```text
-/// valence_i' = valence_i + dt * susceptibility_i * mimicry_rate
-///              * Σ_j w_ij * (valence_j - valence_i)
+/// mimicry  = susceptibility_i * mimicry_rate * Σ_j w_ij * (valence_j - valence_i)
+/// feedback = feedback_strength * (expressed_i - valence_i)
+/// valence_i' = valence_i + dt * (mimicry + feedback)
 /// ```
+///
+/// where `expressed_i` is the weight-averaged neighbor valence.
 ///
 /// The adjacency list is `&[Vec<(usize, f64)>]` where `adjacency[i]` contains
 /// `(neighbor_index, weight)` pairs. This avoids importing `network::SocialNetwork`.
@@ -133,7 +185,27 @@ pub fn hatfield_contagion_step(
             influence_sum += w * (states[j].valence - state.valence);
         }
 
-        let dv = state.susceptibility * config.mimicry_rate * influence_sum;
+        // Mimicry: agent moves toward weighted average of neighbors
+        let mimicry = state.susceptibility * config.mimicry_rate * influence_sum;
+        // Feedback: expressed emotion (influenced by neighbors) feeds back to felt emotion
+        // expressed_i approximated as the neighbor-weighted mean influence on i
+        let expressed = if adjacency[i].is_empty() {
+            state.valence
+        } else {
+            let total_w: f64 = adjacency[i].iter().map(|&(_, w)| w).sum();
+            if total_w > 0.0 {
+                adjacency[i]
+                    .iter()
+                    .map(|&(j, w)| w * states[j].valence)
+                    .sum::<f64>()
+                    / total_w
+            } else {
+                state.valence
+            }
+        };
+        let feedback = config.feedback_strength * (expressed - state.valence);
+
+        let dv = mimicry + feedback;
         let new_valence = (state.valence + dt * dv).clamp(0.0, 1.0);
 
         new_states.push(EmotionalState {
@@ -155,6 +227,7 @@ pub fn hatfield_contagion_step(
 /// # Errors
 ///
 /// Returns error if parameters are invalid.
+#[inline]
 #[must_use = "returns the new SIS state without side effects"]
 pub fn sis_step(s: f64, i: f64, beta: f64, gamma: f64, dt: f64) -> Result<SisState> {
     validate_non_negative(s, "s")?;
@@ -166,10 +239,19 @@ pub fn sis_step(s: f64, i: f64, beta: f64, gamma: f64, dt: f64) -> Result<SisSta
     let ds = -beta * s * i + gamma * i;
     let di = beta * s * i - gamma * i;
 
-    Ok(SisState {
-        s: (s + ds * dt).max(0.0),
-        i: (i + di * dt).max(0.0),
-    })
+    let new_s = (s + ds * dt).max(0.0);
+    let new_i = (i + di * dt).max(0.0);
+
+    // Renormalize to preserve S + I = 1 invariant
+    let total = new_s + new_i;
+    if total > 0.0 {
+        Ok(SisState {
+            s: new_s / total,
+            i: new_i / total,
+        })
+    } else {
+        Ok(SisState { s: 1.0, i: 0.0 })
+    }
 }
 
 /// SIS endemic equilibrium: steady-state infection fraction.
@@ -273,9 +355,12 @@ pub fn contagion_threshold(adjacency: &[Vec<(usize, f64)>]) -> Result<f64> {
         let mut w = vec![0.0; n];
         for (i, neighbors) in adjacency.iter().enumerate() {
             for &(j, weight) in neighbors {
-                if j < n {
-                    w[i] += weight * v[j];
+                if j >= n {
+                    return Err(SanghaError::InvalidNetwork(format!(
+                        "neighbor index {j} out of bounds for {n} agents"
+                    )));
                 }
+                w[i] += weight * v[j];
             }
         }
 
@@ -312,6 +397,7 @@ pub fn contagion_threshold(adjacency: &[Vec<(usize, f64)>]) -> Result<f64> {
 /// # Errors
 ///
 /// Returns error if `epsilon` is non-positive.
+#[inline]
 #[must_use = "returns convergence status without side effects"]
 pub fn emotional_convergence(states: &[EmotionalState], epsilon: f64) -> Result<bool> {
     validate_positive(epsilon, "epsilon")?;
@@ -551,7 +637,7 @@ mod tests {
 
     #[test]
     fn test_sis_state_serde_roundtrip() {
-        let s = SisState::new(0.9, 0.1);
+        let s = SisState::new(0.9, 0.1).unwrap();
         let json = serde_json::to_string(&s).unwrap();
         let back: SisState = serde_json::from_str(&json).unwrap();
         assert!((s.s - back.s).abs() < 1e-10);
@@ -563,5 +649,79 @@ mod tests {
         let json = serde_json::to_string(&c).unwrap();
         let back: HatfieldConfig = serde_json::from_str(&json).unwrap();
         assert!((c.mimicry_rate - back.mimicry_rate).abs() < 1e-10);
+    }
+
+    // --- audit tests ---
+
+    #[test]
+    fn test_sis_step_clamp_negative() {
+        // Large dt forces negative intermediate → clamped to 0, renormalized
+        let state = sis_step(0.01, 0.99, 0.5, 10.0, 1.0).unwrap();
+        assert!(state.s >= 0.0);
+        assert!(state.i >= 0.0);
+        assert!((state.s + state.i - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_sis_state_invalid() {
+        assert!(SisState::new(0.5, 0.6).is_err()); // sum > 1
+        assert!(SisState::new(-0.1, 1.1).is_err()); // negative
+        assert!(SisState::new(f64::NAN, 0.5).is_err());
+    }
+
+    #[test]
+    fn test_contagion_threshold_disconnected() {
+        // Node 0 connected to 1, node 2 isolated
+        let adj = vec![vec![(1, 1.0)], vec![(0, 1.0)], vec![]];
+        // Should still converge (largest eigenvalue from connected component)
+        let threshold = contagion_threshold(&adj).unwrap();
+        assert!(threshold > 0.0);
+    }
+
+    #[test]
+    fn test_mood_propagation_oob_error() {
+        let moods = vec![0.5];
+        let adj = vec![vec![(5, 1.0)]]; // OOB
+        assert!(mood_propagation(&moods, &adj, 0.0, 0.1).is_err());
+    }
+
+    #[test]
+    fn test_hatfield_dt_zero_error() {
+        let states = vec![EmotionalState::new(0.5, 1.0).unwrap()];
+        let adj: Vec<Vec<(usize, f64)>> = vec![vec![]];
+        let config = HatfieldConfig::new(0.5, 0.0).unwrap();
+        assert!(hatfield_contagion_step(&states, &adj, &config, 0.0).is_err());
+    }
+
+    #[test]
+    fn test_mood_propagation_single_no_decay() {
+        let moods = vec![0.7];
+        let adj: Vec<Vec<(usize, f64)>> = vec![vec![]];
+        let new = mood_propagation(&moods, &adj, 0.0, 0.1).unwrap();
+        assert!((new[0] - 0.7).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_contagion_threshold_oob_error() {
+        let adj = vec![vec![(5, 1.0)]]; // OOB neighbor
+        assert!(contagion_threshold(&adj).is_err());
+    }
+
+    #[test]
+    fn test_hatfield_feedback_strength() {
+        // With high feedback_strength, agent should move more toward neighbor average
+        let states = vec![
+            EmotionalState::new(0.2, 1.0).unwrap(),
+            EmotionalState::new(0.8, 1.0).unwrap(),
+        ];
+        let adj = vec![vec![(1, 1.0)], vec![(0, 1.0)]];
+        let no_feedback = HatfieldConfig::new(0.5, 0.0).unwrap();
+        let with_feedback = HatfieldConfig::new(0.5, 0.5).unwrap();
+
+        let new_no = hatfield_contagion_step(&states, &adj, &no_feedback, 0.1).unwrap();
+        let new_yes = hatfield_contagion_step(&states, &adj, &with_feedback, 0.1).unwrap();
+
+        // With feedback, agent 0 should move more toward agent 1
+        assert!(new_yes[0].valence > new_no[0].valence);
     }
 }

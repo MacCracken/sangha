@@ -46,6 +46,28 @@ impl PublicGoodsGame {
             endowment,
         })
     }
+
+    /// Validate that this game is well-formed.
+    ///
+    /// Call this after deserialization to ensure invariants hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `player_count` is 0, `multiplier <= 1`, or `endowment <= 0`.
+    pub fn validate(&self) -> Result<()> {
+        if self.player_count == 0 {
+            return Err(SanghaError::ComputationError(
+                "player_count must be > 0".into(),
+            ));
+        }
+        validate_finite(self.multiplier, "multiplier")?;
+        if self.multiplier <= 1.0 {
+            return Err(SanghaError::ComputationError(
+                "multiplier must be > 1.0 for a social dilemma".into(),
+            ));
+        }
+        validate_positive(self.endowment, "endowment")
+    }
 }
 
 /// Outcome of a public goods game round.
@@ -128,7 +150,8 @@ pub fn public_goods_round(
 
     for (i, &c) in contributions.iter().enumerate() {
         validate_non_negative(c, &format!("contributions[{i}]"))?;
-        if c > game.endowment + f64::EPSILON {
+        // Use a scaled tolerance: 1e-9 relative to endowment
+        if c > game.endowment * (1.0 + 1e-9) + 1e-15 {
             return Err(SanghaError::ComputationError(format!(
                 "contributions[{i}] = {c} exceeds endowment {}",
                 game.endowment
@@ -154,6 +177,7 @@ pub fn public_goods_round(
 /// # Errors
 ///
 /// Returns error if the game is invalid.
+#[inline]
 #[must_use = "returns the equilibrium contributions without side effects"]
 pub fn free_rider_equilibrium(game: &PublicGoodsGame) -> Result<Vec<f64>> {
     let mpcr = game.multiplier / game.player_count as f64;
@@ -174,6 +198,7 @@ pub fn free_rider_equilibrium(game: &PublicGoodsGame) -> Result<Vec<f64>> {
 /// # Errors
 ///
 /// Returns error if the game is invalid.
+#[inline]
 #[must_use = "returns the optimal contributions without side effects"]
 pub fn social_optimum(game: &PublicGoodsGame) -> Result<Vec<f64>> {
     // multiplier > 1 is guaranteed by PublicGoodsGame::new
@@ -444,5 +469,39 @@ mod tests {
         let json = serde_json::to_string(&ar).unwrap();
         let back: AuctionResult = serde_json::from_str(&json).unwrap();
         assert_eq!(ar.winner, back.winner);
+    }
+
+    // --- audit tests ---
+
+    #[test]
+    fn test_mechanism_efficiency_clamp_negative() {
+        let e = mechanism_efficiency(-10.0, 100.0).unwrap();
+        assert!((e - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mechanism_efficiency_clamp_above_one() {
+        let e = mechanism_efficiency(200.0, 100.0).unwrap();
+        assert!((e - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_free_rider_equilibrium_mpcr_exactly_one() {
+        // MPCR = 3/3 = 1.0 exactly → should contribute fully
+        let game = PublicGoodsGame::new(3, 3.0, 10.0).unwrap();
+        let eq = free_rider_equilibrium(&game).unwrap();
+        for &c in &eq {
+            assert!((c - 10.0).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_social_optimum_direct() {
+        let game = PublicGoodsGame::new(5, 1.5, 20.0).unwrap();
+        let opt = social_optimum(&game).unwrap();
+        assert_eq!(opt.len(), 5);
+        for &c in &opt {
+            assert!((c - 20.0).abs() < 1e-10);
+        }
     }
 }

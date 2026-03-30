@@ -4,6 +4,31 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, SanghaError, validate_finite};
 
+/// Validate that a ballot is a valid permutation of `0..candidate_count`.
+fn validate_ballot(ballot: &RankedBallot, candidate_count: usize) -> Result<()> {
+    if ballot.ranking.len() != candidate_count {
+        return Err(SanghaError::ComputationError(format!(
+            "ballot length {} != candidate_count {candidate_count}",
+            ballot.ranking.len()
+        )));
+    }
+    let mut seen = vec![false; candidate_count];
+    for &c in &ballot.ranking {
+        if c >= candidate_count {
+            return Err(SanghaError::ComputationError(format!(
+                "candidate index {c} out of bounds for {candidate_count} candidates"
+            )));
+        }
+        if seen[c] {
+            return Err(SanghaError::ComputationError(format!(
+                "duplicate candidate index {c} in ballot"
+            )));
+        }
+        seen[c] = true;
+    }
+    Ok(())
+}
+
 /// A ranked ballot: candidate indices ordered from most to least preferred.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -48,7 +73,7 @@ pub enum AggregationMethod {
     Mean,
     /// Median.
     Median,
-    /// Trimmed mean (remove top and bottom 10%).
+    /// Trimmed mean (remove top and bottom 10%; falls back to plain mean for < 10 estimates).
     TrimmedMean,
 }
 
@@ -105,8 +130,8 @@ pub fn plurality_vote(votes: &[usize], candidate_count: usize) -> Result<VoteRes
 ///
 /// # Errors
 ///
-/// Returns error if `ballots` is empty, any ballot has wrong length, or
-/// indices are out of bounds.
+/// Returns error if `ballots` is empty, any ballot is not a valid permutation
+/// of `0..candidate_count`, or `candidate_count` is 0.
 #[must_use = "returns the vote result without side effects"]
 pub fn borda_count(ballots: &[RankedBallot], candidate_count: usize) -> Result<VoteResult> {
     if ballots.is_empty() {
@@ -122,18 +147,8 @@ pub fn borda_count(ballots: &[RankedBallot], candidate_count: usize) -> Result<V
     let n = candidate_count as f64;
 
     for ballot in ballots {
-        if ballot.ranking.len() != candidate_count {
-            return Err(SanghaError::ComputationError(format!(
-                "ballot length {} != candidate_count {candidate_count}",
-                ballot.ranking.len()
-            )));
-        }
+        validate_ballot(ballot, candidate_count)?;
         for (rank, &candidate) in ballot.ranking.iter().enumerate() {
-            if candidate >= candidate_count {
-                return Err(SanghaError::ComputationError(format!(
-                    "candidate index {candidate} out of bounds for {candidate_count} candidates"
-                )));
-            }
             scores[candidate] += n - 1.0 - rank as f64;
         }
     }
@@ -183,34 +198,21 @@ pub fn condorcet_winner(ballots: &[RankedBallot], candidate_count: usize) -> Res
     let mut pairwise = vec![vec![0usize; n]; n];
 
     for ballot in ballots {
-        if ballot.ranking.len() != n {
-            return Err(SanghaError::ComputationError(format!(
-                "ballot length {} != candidate_count {n}",
-                ballot.ranking.len()
-            )));
-        }
+        validate_ballot(ballot, n)?;
         // For each pair (a, b) where a appears before b in ranking, a is preferred
         for (pos_a, &a) in ballot.ranking.iter().enumerate() {
-            if a >= n {
-                return Err(SanghaError::ComputationError(format!(
-                    "candidate index {a} out of bounds"
-                )));
-            }
             for &b in &ballot.ranking[pos_a + 1..] {
-                if b >= n {
-                    return Err(SanghaError::ComputationError(format!(
-                        "candidate index {b} out of bounds"
-                    )));
-                }
                 pairwise[a][b] += 1;
             }
         }
     }
 
-    let half = ballots.len();
-    // A Condorcet winner beats all others: pairwise[w][j] > pairwise[j][w] for all j != w
+    let total_voters = ballots.len();
+    // A Condorcet winner beats all others: pairwise[w][j] > n_voters / 2
     for (w, row) in pairwise.iter().enumerate() {
-        let beats_all = (0..n).filter(|&j| j != w).all(|j| row[j] * 2 > half);
+        let beats_all = (0..n)
+            .filter(|&j| j != w)
+            .all(|j| row[j] * 2 > total_voters);
         if beats_all {
             return Ok(Some(w));
         }
@@ -224,6 +226,7 @@ pub fn condorcet_winner(ballots: &[RankedBallot], candidate_count: usize) -> Res
 /// # Errors
 ///
 /// Returns error if `votes` is empty.
+#[inline]
 #[must_use = "returns the majority decision without side effects"]
 pub fn majority_rule(votes: &[bool]) -> Result<bool> {
     if votes.is_empty() {
@@ -273,15 +276,10 @@ pub fn wisdom_of_crowds(estimates: &[f64], method: AggregationMethod) -> Result<
             sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
             let n = sorted.len();
             let trim = (n as f64 * 0.1).floor() as usize;
-            let trimmed = &sorted[trim..n - trim.max(0)];
-            if trimmed.is_empty() {
-                // Too few estimates to trim; fall back to full mean
-                let sum: f64 = sorted.iter().sum();
-                Ok(sum / n as f64)
-            } else {
-                let sum: f64 = trimmed.iter().sum();
-                Ok(sum / trimmed.len() as f64)
-            }
+            // When n < 10, trim is 0 and we fall back to the plain mean
+            let trimmed = &sorted[trim..n - trim];
+            let sum: f64 = trimmed.iter().sum();
+            Ok(sum / trimmed.len() as f64)
         }
     }
 }
@@ -572,5 +570,56 @@ mod tests {
         let json = serde_json::to_string(&method).unwrap();
         let back: AggregationMethod = serde_json::from_str(&json).unwrap();
         assert_eq!(method, back);
+    }
+
+    // --- audit tests ---
+
+    #[test]
+    fn test_borda_duplicate_candidate_error() {
+        let ballots = vec![RankedBallot::new(vec![0, 0, 1])];
+        assert!(borda_count(&ballots, 3).is_err());
+    }
+
+    #[test]
+    fn test_condorcet_duplicate_candidate_error() {
+        let ballots = vec![RankedBallot::new(vec![0, 0, 1])];
+        assert!(condorcet_winner(&ballots, 3).is_err());
+    }
+
+    #[test]
+    fn test_borda_tie() {
+        // Two candidates, two voters, opposite preferences → tie
+        let ballots = vec![RankedBallot::new(vec![0, 1]), RankedBallot::new(vec![1, 0])];
+        let result = borda_count(&ballots, 2).unwrap();
+        assert_eq!(result.winner, None);
+    }
+
+    #[test]
+    fn test_condorcet_zero_candidates_error() {
+        assert!(condorcet_winner(&[RankedBallot::new(vec![])], 0).is_err());
+    }
+
+    #[test]
+    fn test_jury_theorem_even_jury() {
+        // 4 jurors, p=0.7: threshold = 3 (majority of 4)
+        // P = C(4,3)*0.7^3*0.3 + C(4,4)*0.7^4
+        //   = 4*0.343*0.3 + 0.2401 = 0.4116 + 0.2401 = 0.6517
+        let prob = jury_theorem(0.7, 4).unwrap();
+        assert!((prob - 0.6517).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_wisdom_trimmed_mean_small_input() {
+        // 3 estimates: trim = floor(0.3) = 0, should be plain mean
+        let result = wisdom_of_crowds(&[10.0, 20.0, 30.0], AggregationMethod::TrimmedMean).unwrap();
+        assert!((result - 20.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_wisdom_single_estimate() {
+        let result = wisdom_of_crowds(&[42.0], AggregationMethod::Mean).unwrap();
+        assert!((result - 42.0).abs() < 1e-10);
+        let result = wisdom_of_crowds(&[42.0], AggregationMethod::Median).unwrap();
+        assert!((result - 42.0).abs() < 1e-10);
     }
 }

@@ -45,6 +45,34 @@ impl CoalitionGame {
             values,
         })
     }
+
+    /// Validate that this game is well-formed.
+    ///
+    /// Call this after deserialization to ensure invariants hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `player_count > 20`, `values.len() != 2^player_count`,
+    /// or any value is non-finite.
+    pub fn validate(&self) -> Result<()> {
+        if self.player_count > 20 {
+            return Err(SanghaError::ComputationError(
+                "player_count must be <= 20 (bitmask limit)".into(),
+            ));
+        }
+        let expected_len = 1 << self.player_count;
+        if self.values.len() != expected_len {
+            return Err(SanghaError::ComputationError(format!(
+                "values length {} != 2^{} = {expected_len}",
+                self.values.len(),
+                self.player_count
+            )));
+        }
+        for (i, &v) in self.values.iter().enumerate() {
+            validate_finite(v, &format!("values[{i}]"))?;
+        }
+        Ok(())
+    }
 }
 
 /// Shapley value allocation for each player.
@@ -98,6 +126,8 @@ impl CoalitionStructure {
 ///
 /// `φ_i = Σ_{S ⊆ N\{i}} [|S|!(n-|S|-1)! / n!] · [v(S ∪ {i}) - v(S)]`
 ///
+/// **Complexity**: O(n · 2^n) where n = `player_count`. Practical for n ≤ 20.
+///
 /// # Errors
 ///
 /// Returns error if the game is invalid.
@@ -145,6 +175,7 @@ pub fn shapley_value(game: &CoalitionGame) -> Result<ShapleyValues> {
 /// # Errors
 ///
 /// Returns error if any member index is out of bounds.
+#[inline]
 #[must_use = "returns the coalition value without side effects"]
 pub fn coalition_value(game: &CoalitionGame, members: &[usize]) -> Result<f64> {
     let mut mask = 0usize;
@@ -458,5 +489,34 @@ mod tests {
         let json = serde_json::to_string(&cs).unwrap();
         let back: CoalitionStructure = serde_json::from_str(&json).unwrap();
         assert_eq!(cs.coalitions, back.coalitions);
+    }
+
+    // --- audit tests ---
+
+    #[test]
+    fn test_shapley_asymmetric_dictator() {
+        // Dictator game: player 0 has all power
+        // v(S) = 1 if 0 ∈ S, else 0
+        let mut values = vec![0.0; 8];
+        values[0b001] = 1.0; // {0}
+        values[0b011] = 1.0; // {0,1}
+        values[0b101] = 1.0; // {0,2}
+        values[0b111] = 1.0; // {0,1,2}
+        let game = CoalitionGame::new(3, values).unwrap();
+        let sv = shapley_value(&game).unwrap();
+        assert!((sv.values[0] - 1.0).abs() < 1e-10); // dictator gets all
+        assert!((sv.values[1] - 0.0).abs() < 1e-10);
+        assert!((sv.values[2] - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_core_stable_nan_allocation_error() {
+        let game = majority_game_3();
+        assert!(is_core_stable(&game, &[f64::NAN, 0.0, 0.0]).is_err());
+    }
+
+    #[test]
+    fn test_game_nan_values_error() {
+        assert!(CoalitionGame::new(1, vec![0.0, f64::NAN]).is_err());
     }
 }
