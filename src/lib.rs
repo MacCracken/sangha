@@ -31,6 +31,10 @@
 
 #![warn(missing_docs)]
 
+pub mod coalition;
+pub mod collective;
+pub mod contagion;
+pub mod coordination;
 pub mod error;
 pub mod game_theory;
 pub mod group;

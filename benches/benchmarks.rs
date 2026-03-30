@@ -92,6 +92,131 @@ fn bench_social_loafing(c: &mut Criterion) {
     });
 }
 
+fn bench_borda_count(c: &mut Criterion) {
+    let ballots: Vec<sangha::collective::RankedBallot> = (0..50)
+        .map(|i| {
+            sangha::collective::RankedBallot::new(vec![
+                i % 5,
+                (i + 1) % 5,
+                (i + 2) % 5,
+                (i + 3) % 5,
+                (i + 4) % 5,
+            ])
+        })
+        .collect();
+    c.bench_function("collective/borda_count_50v_5c", |b| {
+        b.iter(|| sangha::collective::borda_count(black_box(&ballots), black_box(5)))
+    });
+}
+
+fn bench_jury_theorem(c: &mut Criterion) {
+    c.bench_function("collective/jury_theorem_101", |b| {
+        b.iter(|| sangha::collective::jury_theorem(black_box(0.7), black_box(101)))
+    });
+}
+
+fn bench_shapley_value(c: &mut Criterion) {
+    // 10-player game: v(S) = |S|^2 (superadditive)
+    let values: Vec<f64> = (0..1024)
+        .map(|mask: usize| {
+            let size = mask.count_ones() as f64;
+            size * size
+        })
+        .collect();
+    let game = sangha::coalition::CoalitionGame::new(10, values).unwrap();
+    c.bench_function("coalition/shapley_value_10p", |b| {
+        b.iter(|| sangha::coalition::shapley_value(black_box(&game)))
+    });
+}
+
+fn bench_is_core_stable(c: &mut Criterion) {
+    let values: Vec<f64> = (0..1024)
+        .map(|mask: usize| {
+            let size = mask.count_ones() as f64;
+            size * size
+        })
+        .collect();
+    let game = sangha::coalition::CoalitionGame::new(10, values).unwrap();
+    let alloc = vec![10.0; 10]; // 100 total = v(N) = 10^2
+    c.bench_function("coalition/is_core_stable_10p", |b| {
+        b.iter(|| sangha::coalition::is_core_stable(black_box(&game), black_box(&alloc)))
+    });
+}
+
+fn bench_public_goods_round(c: &mut Criterion) {
+    let game = sangha::coordination::PublicGoodsGame::new(100, 2.0, 10.0).unwrap();
+    let contributions: Vec<f64> = (0..100).map(|i| i as f64 % 11.0).collect();
+    c.bench_function("coordination/public_goods_100", |b| {
+        b.iter(|| {
+            sangha::coordination::public_goods_round(black_box(&game), black_box(&contributions))
+        })
+    });
+}
+
+fn bench_sealed_bid_auction(c: &mut Criterion) {
+    let bids: Vec<f64> = (0..100).map(|i| i as f64 * 1.5).collect();
+    c.bench_function("coordination/auction_100", |b| {
+        b.iter(|| {
+            sangha::coordination::sealed_bid_auction(
+                black_box(&bids),
+                black_box(sangha::coordination::AuctionType::SecondPrice),
+            )
+        })
+    });
+}
+
+fn bench_hatfield_contagion(c: &mut Criterion) {
+    let states: Vec<sangha::contagion::EmotionalState> = (0..100)
+        .map(|i| sangha::contagion::EmotionalState::new(i as f64 / 100.0, 0.8).unwrap())
+        .collect();
+    // Ring topology
+    let adj: Vec<Vec<(usize, f64)>> = (0..100)
+        .map(|i| vec![((i + 1) % 100, 1.0), ((i + 99) % 100, 1.0)])
+        .collect();
+    let config = sangha::contagion::HatfieldConfig::new(0.5, 0.0).unwrap();
+    c.bench_function("contagion/hatfield_100", |b| {
+        b.iter(|| {
+            sangha::contagion::hatfield_contagion_step(
+                black_box(&states),
+                black_box(&adj),
+                black_box(&config),
+                black_box(0.01),
+            )
+        })
+    });
+}
+
+fn bench_sis_step(c: &mut Criterion) {
+    c.bench_function("contagion/sis_step", |b| {
+        b.iter(|| {
+            sangha::contagion::sis_step(
+                black_box(0.9),
+                black_box(0.1),
+                black_box(0.5),
+                black_box(0.2),
+                black_box(0.01),
+            )
+        })
+    });
+}
+
+fn bench_mood_propagation(c: &mut Criterion) {
+    let moods: Vec<f64> = (0..100).map(|i| i as f64 / 100.0).collect();
+    let adj: Vec<Vec<(usize, f64)>> = (0..100)
+        .map(|i| vec![((i + 1) % 100, 1.0), ((i + 99) % 100, 1.0)])
+        .collect();
+    c.bench_function("contagion/mood_propagation_100", |b| {
+        b.iter(|| {
+            sangha::contagion::mood_propagation(
+                black_box(&moods),
+                black_box(&adj),
+                black_box(0.1),
+                black_box(0.01),
+            )
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_gini,
@@ -104,5 +229,14 @@ criterion_group!(
     bench_conformity_threshold,
     bench_bass_diffusion,
     bench_social_loafing,
+    bench_borda_count,
+    bench_jury_theorem,
+    bench_shapley_value,
+    bench_is_core_stable,
+    bench_public_goods_round,
+    bench_sealed_bid_auction,
+    bench_hatfield_contagion,
+    bench_sis_step,
+    bench_mood_propagation,
 );
 criterion_main!(benches);
