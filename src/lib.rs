@@ -43,5 +43,6 @@ pub mod influence;
 pub mod network;
 pub mod opinion;
 pub mod population;
+pub mod trust;
 
 pub use error::SanghaError;

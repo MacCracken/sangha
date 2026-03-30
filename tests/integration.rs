@@ -8,6 +8,7 @@ use sangha::game_theory;
 use sangha::inequality;
 use sangha::network;
 use sangha::population;
+use sangha::trust;
 
 #[test]
 fn test_watts_strogatz_regular_lattice_clustering() {
@@ -113,4 +114,36 @@ fn test_hatfield_emotions_converge() {
         states = contagion::hatfield_contagion_step(&states, &adj, &config, 0.1).unwrap();
     }
     assert!(contagion::emotional_convergence(&states, 0.01).unwrap());
+}
+
+#[test]
+fn test_barabasi_albert_small_world_property() {
+    // BA network should have short average path length
+    let net = network::barabasi_albert_with_seed(100, 3, 42).unwrap();
+    let apl = network::average_path_length(&net).unwrap();
+    assert!(apl < 5.0); // small-world: short paths
+    assert!(apl > 1.0); // not trivially all connected
+}
+
+#[test]
+fn test_tragedy_of_commons_demonstrates_tragedy() {
+    let game = coordination::TragedyOfCommons::new(10, 1000.0, 5.0).unwrap();
+    let nash = coordination::commons_nash_equilibrium(&game).unwrap();
+    let opt = coordination::commons_social_optimum(&game).unwrap();
+    let nash_payoffs = coordination::tragedy_of_commons_round(&game, &nash).unwrap();
+    let opt_payoffs = coordination::tragedy_of_commons_round(&game, &opt).unwrap();
+    let nash_welfare: f64 = nash_payoffs.iter().sum();
+    let opt_welfare: f64 = opt_payoffs.iter().sum();
+    assert!(nash_welfare < opt_welfare);
+}
+
+#[test]
+fn test_trust_chain_decay() {
+    let mut net = trust::TrustNetwork::new(4);
+    net.add_trust(0, 1, 0.9).unwrap();
+    net.add_trust(1, 2, 0.9).unwrap();
+    net.add_trust(2, 3, 0.9).unwrap();
+    let direct = trust::trust_propagation(&net, 0, 1, 5, 0.9).unwrap();
+    let indirect = trust::trust_propagation(&net, 0, 3, 5, 0.9).unwrap();
+    assert!(direct > indirect); // trust decays over hops
 }

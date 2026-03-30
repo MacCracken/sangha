@@ -262,6 +262,212 @@ pub fn mechanism_efficiency(actual_welfare: f64, optimal_welfare: f64) -> Result
     Ok((actual_welfare / optimal_welfare).clamp(0.0, 1.0))
 }
 
+/// Configuration for a tragedy of the commons game.
+///
+/// Each player extracts from a shared resource. Overextraction depletes the resource.
+///
+/// `π_i = e_i * (1 - E/K) - c * e_i`
+///
+/// where `e_i` is player i's extraction, `E = Σ e_i`, `K` is capacity, `c` is cost.
+///
+/// Reference: Hardin (1968), *Science* 162.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct TragedyOfCommons {
+    /// Number of players.
+    pub player_count: usize,
+    /// Total resource capacity (K > 0).
+    pub resource_capacity: f64,
+    /// Cost per unit of extraction (c >= 0, c < K).
+    pub extraction_cost: f64,
+}
+
+impl TragedyOfCommons {
+    /// Create a new tragedy of the commons game.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if `player_count` is 0, `resource_capacity` is not positive,
+    /// `extraction_cost` is negative, or `extraction_cost >= resource_capacity`.
+    pub fn new(player_count: usize, resource_capacity: f64, extraction_cost: f64) -> Result<Self> {
+        if player_count == 0 {
+            return Err(SanghaError::ComputationError(
+                "player_count must be > 0".into(),
+            ));
+        }
+        validate_positive(resource_capacity, "resource_capacity")?;
+        validate_non_negative(extraction_cost, "extraction_cost")?;
+        if extraction_cost >= resource_capacity {
+            return Err(SanghaError::ComputationError(
+                "extraction_cost must be < resource_capacity".into(),
+            ));
+        }
+        Ok(Self {
+            player_count,
+            resource_capacity,
+            extraction_cost,
+        })
+    }
+
+    /// Validate after deserialization.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the game parameters are invalid.
+    pub fn validate(&self) -> Result<()> {
+        if self.player_count == 0 {
+            return Err(SanghaError::ComputationError(
+                "player_count must be > 0".into(),
+            ));
+        }
+        validate_positive(self.resource_capacity, "resource_capacity")?;
+        validate_non_negative(self.extraction_cost, "extraction_cost")?;
+        if self.extraction_cost >= self.resource_capacity {
+            return Err(SanghaError::ComputationError(
+                "extraction_cost must be < resource_capacity".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Compute payoffs for one round of the tragedy of the commons.
+///
+/// `π_i = e_i * (1 - E/K) - c * e_i`
+///
+/// # Errors
+///
+/// Returns error if `extractions` length != `player_count`, or any extraction
+/// is negative or non-finite.
+#[must_use = "returns the payoffs without side effects"]
+pub fn tragedy_of_commons_round(game: &TragedyOfCommons, extractions: &[f64]) -> Result<Vec<f64>> {
+    if extractions.len() != game.player_count {
+        return Err(SanghaError::ComputationError(format!(
+            "extractions length {} != player_count {}",
+            extractions.len(),
+            game.player_count
+        )));
+    }
+
+    let mut total = 0.0;
+    for (i, &e) in extractions.iter().enumerate() {
+        validate_non_negative(e, &format!("extractions[{i}]"))?;
+        total += e;
+    }
+
+    let k = game.resource_capacity;
+    let c = game.extraction_cost;
+    let payoffs = extractions
+        .iter()
+        .map(|&e| e * (1.0 - total / k) - c * e)
+        .collect();
+
+    Ok(payoffs)
+}
+
+/// Cournot-Nash equilibrium extraction levels for the tragedy of the commons.
+///
+/// Each player extracts: `e* = (K - c) / (n + 1)`
+///
+/// Total extraction: `E* = n * (K - c) / (n + 1)`, which exceeds the social optimum.
+#[inline]
+#[must_use = "returns the equilibrium extractions without side effects"]
+pub fn commons_nash_equilibrium(game: &TragedyOfCommons) -> Result<Vec<f64>> {
+    let e_star = (game.resource_capacity - game.extraction_cost) / (game.player_count as f64 + 1.0);
+    Ok(vec![e_star; game.player_count])
+}
+
+/// Socially optimal extraction levels for the tragedy of the commons.
+///
+/// Total optimal extraction: `E_opt = (K - c) / 2`, split equally.
+/// Per player: `e_opt = (K - c) / (2n)`.
+#[inline]
+#[must_use = "returns the optimal extractions without side effects"]
+pub fn commons_social_optimum(game: &TragedyOfCommons) -> Result<Vec<f64>> {
+    let e_opt = (game.resource_capacity - game.extraction_cost) / (2.0 * game.player_count as f64);
+    Ok(vec![e_opt; game.player_count])
+}
+
+/// Discounted sum of a constant payoff over a finite number of rounds.
+///
+/// `V = Σ_{t=0}^{rounds-1} payoff * δ^t = payoff * (1 - δ^rounds) / (1 - δ)`
+///
+/// For `δ = 1.0`, returns `payoff * rounds`.
+///
+/// # Errors
+///
+/// Returns error if `discount_factor` not in \[0, 1\], `payoff` not finite, or `rounds` is 0.
+#[inline]
+#[must_use = "returns the discounted sum without side effects"]
+pub fn repeated_game_discount(payoff: f64, rounds: usize, discount_factor: f64) -> Result<f64> {
+    validate_finite(payoff, "payoff")?;
+    validate_finite(discount_factor, "discount_factor")?;
+    if !(0.0..=1.0).contains(&discount_factor) {
+        return Err(SanghaError::ComputationError(format!(
+            "discount_factor must be in [0, 1], got {discount_factor}"
+        )));
+    }
+    if rounds == 0 {
+        return Err(SanghaError::ComputationError("rounds must be > 0".into()));
+    }
+
+    if (discount_factor - 1.0).abs() < f64::EPSILON {
+        Ok(payoff * rounds as f64)
+    } else if discount_factor.abs() < f64::EPSILON {
+        Ok(payoff) // only the first round counts
+    } else {
+        Ok(payoff * (1.0 - discount_factor.powi(rounds as i32)) / (1.0 - discount_factor))
+    }
+}
+
+/// Check if cooperation is sustainable under the folk theorem.
+///
+/// Cooperation is sustainable in an infinitely repeated game if:
+/// `δ >= (T - R) / (T - P)`
+///
+/// where `T` = temptation, `R` = reward (mutual cooperation),
+/// `P` = punishment (mutual defection), `δ` = discount factor.
+///
+/// Requires `T > R > P` (prisoner's dilemma ordering).
+///
+/// # Errors
+///
+/// Returns error if `T <= R`, `R <= P`, `discount` not in \[0, 1\],
+/// or any value is non-finite.
+///
+/// Reference: Friedman (1971), *Review of Economic Studies* 38(1).
+#[inline]
+#[must_use = "returns whether cooperation is sustainable without side effects"]
+pub fn folk_theorem_threshold(
+    temptation: f64,
+    reward: f64,
+    punishment: f64,
+    discount: f64,
+) -> Result<bool> {
+    validate_finite(temptation, "temptation")?;
+    validate_finite(reward, "reward")?;
+    validate_finite(punishment, "punishment")?;
+    validate_finite(discount, "discount")?;
+    if temptation <= reward {
+        return Err(SanghaError::ComputationError(
+            "temptation must be > reward".into(),
+        ));
+    }
+    if reward <= punishment {
+        return Err(SanghaError::ComputationError(
+            "reward must be > punishment".into(),
+        ));
+    }
+    if !(0.0..=1.0).contains(&discount) {
+        return Err(SanghaError::ComputationError(format!(
+            "discount must be in [0, 1], got {discount}"
+        )));
+    }
+
+    let threshold = (temptation - reward) / (temptation - punishment);
+    Ok(discount >= threshold)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,5 +709,178 @@ mod tests {
         for &c in &opt {
             assert!((c - 20.0).abs() < 1e-10);
         }
+    }
+
+    // --- TragedyOfCommons ---
+
+    #[test]
+    fn test_tragedy_new_valid() {
+        let g = TragedyOfCommons::new(5, 1000.0, 10.0);
+        assert!(g.is_ok());
+    }
+
+    #[test]
+    fn test_tragedy_new_invalid() {
+        assert!(TragedyOfCommons::new(0, 1000.0, 10.0).is_err()); // no players
+        assert!(TragedyOfCommons::new(5, -1.0, 10.0).is_err()); // negative capacity
+        assert!(TragedyOfCommons::new(5, 1000.0, 1000.0).is_err()); // cost >= capacity
+    }
+
+    #[test]
+    fn test_tragedy_round_basic() {
+        let game = TragedyOfCommons::new(2, 100.0, 5.0).unwrap();
+        // Player 0 extracts 10, player 1 extracts 20. Total = 30.
+        // π_0 = 10*(1-30/100) - 5*10 = 10*0.7 - 50 = 7 - 50 = -43
+        // π_1 = 20*(1-30/100) - 5*20 = 20*0.7 - 100 = 14 - 100 = -86
+        let payoffs = tragedy_of_commons_round(&game, &[10.0, 20.0]).unwrap();
+        assert!((payoffs[0] - (-43.0)).abs() < 1e-10);
+        assert!((payoffs[1] - (-86.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_tragedy_round_zero_extraction() {
+        let game = TragedyOfCommons::new(3, 100.0, 5.0).unwrap();
+        let payoffs = tragedy_of_commons_round(&game, &[0.0, 0.0, 0.0]).unwrap();
+        for &p in &payoffs {
+            assert!((p - 0.0).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_tragedy_round_overextraction() {
+        let game = TragedyOfCommons::new(2, 100.0, 0.0).unwrap();
+        let payoffs = tragedy_of_commons_round(&game, &[80.0, 80.0]).unwrap();
+        // Total=160 > K=100, so (1-E/K) = -0.6, payoffs are negative
+        for &p in &payoffs {
+            assert!(p < 0.0);
+        }
+    }
+
+    #[test]
+    fn test_tragedy_round_wrong_length() {
+        let game = TragedyOfCommons::new(3, 100.0, 5.0).unwrap();
+        assert!(tragedy_of_commons_round(&game, &[10.0, 20.0]).is_err());
+    }
+
+    #[test]
+    fn test_commons_nash_formula() {
+        // e* = (K - c) / (n + 1) = (1000 - 10) / 6 = 165.0
+        let game = TragedyOfCommons::new(5, 1000.0, 10.0).unwrap();
+        let nash = commons_nash_equilibrium(&game).unwrap();
+        assert_eq!(nash.len(), 5);
+        for &e in &nash {
+            assert!((e - 165.0).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_commons_social_optimum_formula() {
+        // e_opt = (K - c) / (2n) = (1000 - 10) / 10 = 99.0
+        let game = TragedyOfCommons::new(5, 1000.0, 10.0).unwrap();
+        let opt = commons_social_optimum(&game).unwrap();
+        for &e in &opt {
+            assert!((e - 99.0).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_commons_nash_exceeds_optimum() {
+        let game = TragedyOfCommons::new(5, 1000.0, 10.0).unwrap();
+        let nash = commons_nash_equilibrium(&game).unwrap();
+        let opt = commons_social_optimum(&game).unwrap();
+        let nash_total: f64 = nash.iter().sum();
+        let opt_total: f64 = opt.iter().sum();
+        assert!(nash_total > opt_total); // the tragedy
+    }
+
+    #[test]
+    fn test_commons_nash_vs_optimum_payoffs() {
+        let game = TragedyOfCommons::new(5, 1000.0, 10.0).unwrap();
+        let nash = commons_nash_equilibrium(&game).unwrap();
+        let opt = commons_social_optimum(&game).unwrap();
+        let nash_payoffs = tragedy_of_commons_round(&game, &nash).unwrap();
+        let opt_payoffs = tragedy_of_commons_round(&game, &opt).unwrap();
+        let nash_welfare: f64 = nash_payoffs.iter().sum();
+        let opt_welfare: f64 = opt_payoffs.iter().sum();
+        assert!(nash_welfare < opt_welfare); // Nash is worse for society
+    }
+
+    // --- repeated_game_discount ---
+
+    #[test]
+    fn test_repeated_discount_single_round() {
+        let v = repeated_game_discount(10.0, 1, 0.9).unwrap();
+        assert!((v - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_repeated_discount_geometric() {
+        // V = 10 * (1 - 0.9^5) / (1 - 0.9) = 10 * (1 - 0.59049) / 0.1 = 40.951
+        let v = repeated_game_discount(10.0, 5, 0.9).unwrap();
+        let expected = 10.0 * (1.0 - 0.9_f64.powi(5)) / 0.1;
+        assert!((v - expected).abs() < 1e-8);
+    }
+
+    #[test]
+    fn test_repeated_discount_delta_one() {
+        let v = repeated_game_discount(10.0, 100, 1.0).unwrap();
+        assert!((v - 1000.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_repeated_discount_delta_zero() {
+        let v = repeated_game_discount(10.0, 100, 0.0).unwrap();
+        assert!((v - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_repeated_discount_invalid() {
+        assert!(repeated_game_discount(10.0, 0, 0.9).is_err()); // rounds=0
+        assert!(repeated_game_discount(10.0, 5, 1.5).is_err()); // delta>1
+        assert!(repeated_game_discount(10.0, 5, -0.1).is_err()); // delta<0
+    }
+
+    // --- folk_theorem_threshold ---
+
+    #[test]
+    fn test_folk_theorem_cooperate() {
+        // PD: T=5, R=3, P=1. Threshold = (5-3)/(5-1) = 0.5
+        assert!(folk_theorem_threshold(5.0, 3.0, 1.0, 0.9).unwrap());
+    }
+
+    #[test]
+    fn test_folk_theorem_defect() {
+        assert!(!folk_theorem_threshold(5.0, 3.0, 1.0, 0.3).unwrap());
+    }
+
+    #[test]
+    fn test_folk_theorem_boundary() {
+        // At exactly the threshold: δ = 0.5 >= 0.5 → true
+        assert!(folk_theorem_threshold(5.0, 3.0, 1.0, 0.5).unwrap());
+    }
+
+    #[test]
+    fn test_folk_theorem_invalid_ordering() {
+        assert!(folk_theorem_threshold(3.0, 5.0, 1.0, 0.9).is_err()); // T <= R
+        assert!(folk_theorem_threshold(5.0, 1.0, 3.0, 0.9).is_err()); // R <= P
+    }
+
+    #[test]
+    fn test_folk_theorem_pd_payoffs() {
+        // Standard PD: T=5, R=3, P=1. Threshold = 2/4 = 0.5
+        let threshold_met = folk_theorem_threshold(5.0, 3.0, 1.0, 0.5).unwrap();
+        assert!(threshold_met);
+        let below = folk_theorem_threshold(5.0, 3.0, 1.0, 0.49).unwrap();
+        assert!(!below);
+    }
+
+    // --- serde roundtrips ---
+
+    #[test]
+    fn test_tragedy_serde_roundtrip() {
+        let game = TragedyOfCommons::new(5, 1000.0, 10.0).unwrap();
+        let json = serde_json::to_string(&game).unwrap();
+        let back: TragedyOfCommons = serde_json::from_str(&json).unwrap();
+        assert_eq!(game.player_count, back.player_count);
     }
 }

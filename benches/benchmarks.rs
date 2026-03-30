@@ -217,6 +217,114 @@ fn bench_mood_propagation(c: &mut Criterion) {
     });
 }
 
+fn bench_density(c: &mut Criterion) {
+    let net = sangha::network::watts_strogatz(100, 4, 0.3).unwrap();
+    c.bench_function("network/density_100", |b| {
+        b.iter(|| sangha::network::density(black_box(&net)))
+    });
+}
+
+fn bench_shortest_path(c: &mut Criterion) {
+    let net = sangha::network::watts_strogatz(100, 4, 0.3).unwrap();
+    c.bench_function("network/shortest_path_100", |b| {
+        b.iter(|| sangha::network::shortest_path(black_box(&net), black_box(0), black_box(50)))
+    });
+}
+
+fn bench_average_path_length(c: &mut Criterion) {
+    let net = sangha::network::watts_strogatz(50, 4, 0.3).unwrap();
+    c.bench_function("network/average_path_length_50", |b| {
+        b.iter(|| sangha::network::average_path_length(black_box(&net)))
+    });
+}
+
+fn bench_betweenness(c: &mut Criterion) {
+    let net = sangha::network::watts_strogatz(50, 4, 0.3).unwrap();
+    c.bench_function("network/betweenness_centrality_50", |b| {
+        b.iter(|| sangha::network::betweenness_centrality(black_box(&net), black_box(0)))
+    });
+}
+
+fn bench_barabasi_albert(c: &mut Criterion) {
+    c.bench_function("network/barabasi_albert_100_3", |b| {
+        b.iter(|| {
+            sangha::network::barabasi_albert_with_seed(black_box(100), black_box(3), black_box(42))
+        })
+    });
+}
+
+fn bench_trust_propagation(c: &mut Criterion) {
+    let mut net = sangha::trust::TrustNetwork::new(100);
+    for i in 0..99 {
+        net.add_trust(i, i + 1, 0.8).unwrap();
+    }
+    c.bench_function("trust/propagation_100_chain", |b| {
+        b.iter(|| {
+            sangha::trust::trust_propagation(
+                black_box(&net),
+                black_box(0),
+                black_box(50),
+                black_box(60),
+                black_box(0.9),
+            )
+        })
+    });
+}
+
+fn bench_reputation_aggregate(c: &mut Criterion) {
+    let mut net = sangha::trust::TrustNetwork::new(100);
+    for i in 0..99 {
+        net.add_trust(i, 99, (i as f64 / 50.0) - 1.0).unwrap();
+    }
+    c.bench_function("trust/reputation_aggregate_100", |b| {
+        b.iter(|| sangha::trust::reputation_aggregate(black_box(&net), black_box(99)))
+    });
+}
+
+fn bench_trust_decay(c: &mut Criterion) {
+    c.bench_function("trust/trust_decay", |b| {
+        b.iter(|| sangha::trust::trust_decay(black_box(0.8), black_box(10.0), black_box(0.1)))
+    });
+}
+
+fn bench_tragedy_of_commons(c: &mut Criterion) {
+    let game = sangha::coordination::TragedyOfCommons::new(100, 1000.0, 10.0).unwrap();
+    let extractions: Vec<f64> = (0..100).map(|i| i as f64 * 0.1).collect();
+    c.bench_function("coordination/tragedy_100", |b| {
+        b.iter(|| {
+            sangha::coordination::tragedy_of_commons_round(
+                black_box(&game),
+                black_box(&extractions),
+            )
+        })
+    });
+}
+
+fn bench_folk_theorem(c: &mut Criterion) {
+    c.bench_function("coordination/folk_theorem", |b| {
+        b.iter(|| {
+            sangha::coordination::folk_theorem_threshold(
+                black_box(5.0),
+                black_box(3.0),
+                black_box(1.0),
+                black_box(0.9),
+            )
+        })
+    });
+}
+
+fn bench_repeated_discount(c: &mut Criterion) {
+    c.bench_function("coordination/repeated_discount", |b| {
+        b.iter(|| {
+            sangha::coordination::repeated_game_discount(
+                black_box(10.0),
+                black_box(100),
+                black_box(0.95),
+            )
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_gini,
@@ -238,5 +346,16 @@ criterion_group!(
     bench_hatfield_contagion,
     bench_sis_step,
     bench_mood_propagation,
+    bench_density,
+    bench_shortest_path,
+    bench_average_path_length,
+    bench_betweenness,
+    bench_barabasi_albert,
+    bench_trust_propagation,
+    bench_reputation_aggregate,
+    bench_trust_decay,
+    bench_tragedy_of_commons,
+    bench_folk_theorem,
+    bench_repeated_discount,
 );
 criterion_main!(benches);
