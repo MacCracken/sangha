@@ -7,13 +7,29 @@ use crate::error::{
 };
 
 /// Emotional state of an agent.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+///
+/// Deserialization validates invariants automatically.
+#[derive(Debug, Clone, Copy, Serialize)]
 #[non_exhaustive]
 pub struct EmotionalState {
     /// Valence: 0.0 (very negative) to 1.0 (very positive).
     pub valence: f64,
     /// Susceptibility to contagion: 0.0 (immune) to 1.0 (fully susceptible).
     pub susceptibility: f64,
+}
+
+impl<'de> Deserialize<'de> for EmotionalState {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> core::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            valence: f64,
+            susceptibility: f64,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        EmotionalState::new(raw.valence, raw.susceptibility).map_err(serde::de::Error::custom)
+    }
 }
 
 impl EmotionalState {
@@ -70,13 +86,29 @@ impl EmotionalState {
 /// SIS (Susceptible-Infected-Susceptible) compartmental state.
 ///
 /// Unlike SIR, infected individuals return to susceptible (behavioral relapse).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+///
+/// Deserialization validates invariants automatically.
+#[derive(Debug, Clone, Copy, Serialize)]
 #[non_exhaustive]
 pub struct SisState {
     /// Fraction susceptible.
     pub s: f64,
     /// Fraction infected (exhibiting behavior).
     pub i: f64,
+}
+
+impl<'de> Deserialize<'de> for SisState {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> core::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            s: f64,
+            i: f64,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        SisState::new(raw.s, raw.i).map_err(serde::de::Error::custom)
+    }
 }
 
 impl SisState {
@@ -100,7 +132,9 @@ impl SisState {
 }
 
 /// Configuration for the Hatfield emotional contagion model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Deserialization validates invariants automatically.
+#[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 pub struct HatfieldConfig {
     /// Rate of emotional mimicry (0.0 to 1.0).
@@ -108,6 +142,21 @@ pub struct HatfieldConfig {
     /// Feedback strength: how much the neighbor-weighted average emotion feeds
     /// back to the agent's felt emotion (0.0 = no feedback, 1.0 = strong).
     pub feedback_strength: f64,
+}
+
+impl<'de> Deserialize<'de> for HatfieldConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> core::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            mimicry_rate: f64,
+            feedback_strength: f64,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        HatfieldConfig::new(raw.mimicry_rate, raw.feedback_strength)
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 impl HatfieldConfig {
@@ -723,5 +772,29 @@ mod tests {
 
         // With feedback, agent 0 should move more toward agent 1
         assert!(new_yes[0].valence > new_no[0].valence);
+    }
+
+    #[test]
+    fn test_emotional_state_deserialize_rejects_invalid() {
+        // valence > 1.0 is invalid
+        let json = r#"{"valence":1.5,"susceptibility":0.5}"#;
+        let result: core::result::Result<EmotionalState, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sis_state_deserialize_rejects_invalid() {
+        // s + i != 1
+        let json = r#"{"s":0.5,"i":0.8}"#;
+        let result: core::result::Result<SisState, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hatfield_config_deserialize_rejects_invalid() {
+        // negative mimicry_rate
+        let json = r#"{"mimicry_rate":-0.5,"feedback_strength":0.1}"#;
+        let result: core::result::Result<HatfieldConfig, _> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 }

@@ -7,7 +7,9 @@ use crate::error::{Result, SanghaError, validate_finite, validate_non_negative};
 /// A directed trust relationship between two agents.
 ///
 /// `trust_level` ranges from -1.0 (complete distrust) to 1.0 (complete trust).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+///
+/// Deserialization validates invariants automatically.
+#[derive(Debug, Clone, Copy, Serialize)]
 #[non_exhaustive]
 pub struct TrustRelation {
     /// Index of the trusting agent.
@@ -16,6 +18,22 @@ pub struct TrustRelation {
     pub trustee: usize,
     /// Trust level in \[-1, 1\].
     pub trust_level: f64,
+}
+
+impl<'de> Deserialize<'de> for TrustRelation {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> core::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            truster: usize,
+            trustee: usize,
+            trust_level: f64,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        TrustRelation::new(raw.truster, raw.trustee, raw.trust_level)
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 impl TrustRelation {
@@ -563,5 +581,13 @@ mod tests {
         let back: ReputationScore = serde_json::from_str(&json).unwrap();
         assert_eq!(r.agent, back.agent);
         assert!((r.score - back.score).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_trust_relation_deserialize_rejects_invalid() {
+        // trust_level > 1.0 is invalid
+        let json = r#"{"truster":0,"trustee":1,"trust_level":2.0}"#;
+        let result: core::result::Result<TrustRelation, _> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 }

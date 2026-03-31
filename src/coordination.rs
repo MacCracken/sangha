@@ -10,7 +10,9 @@ use crate::error::{
 ///
 /// Each player has an endowment they may contribute to a public pool.
 /// The pool is multiplied by `multiplier` and split evenly among all players.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Deserialization validates invariants automatically.
+#[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 pub struct PublicGoodsGame {
     /// Number of players.
@@ -19,6 +21,22 @@ pub struct PublicGoodsGame {
     pub multiplier: f64,
     /// Each player's endowment (uniform).
     pub endowment: f64,
+}
+
+impl<'de> Deserialize<'de> for PublicGoodsGame {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> core::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            player_count: usize,
+            multiplier: f64,
+            endowment: f64,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        PublicGoodsGame::new(raw.player_count, raw.multiplier, raw.endowment)
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 impl PublicGoodsGame {
@@ -271,7 +289,9 @@ pub fn mechanism_efficiency(actual_welfare: f64, optimal_welfare: f64) -> Result
 /// where `e_i` is player i's extraction, `E = Σ e_i`, `K` is capacity, `c` is cost.
 ///
 /// Reference: Hardin (1968), *Science* 162.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Deserialization validates invariants automatically.
+#[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 pub struct TragedyOfCommons {
     /// Number of players.
@@ -328,6 +348,22 @@ impl TragedyOfCommons {
             ));
         }
         Ok(())
+    }
+}
+
+impl<'de> Deserialize<'de> for TragedyOfCommons {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> core::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            player_count: usize,
+            resource_capacity: f64,
+            extraction_cost: f64,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        TragedyOfCommons::new(raw.player_count, raw.resource_capacity, raw.extraction_cost)
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -882,5 +918,21 @@ mod tests {
         let json = serde_json::to_string(&game).unwrap();
         let back: TragedyOfCommons = serde_json::from_str(&json).unwrap();
         assert_eq!(game.player_count, back.player_count);
+    }
+
+    #[test]
+    fn test_public_goods_deserialize_rejects_invalid() {
+        // multiplier <= 1 is invalid
+        let json = r#"{"player_count":3,"multiplier":0.5,"endowment":10.0}"#;
+        let result: core::result::Result<PublicGoodsGame, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tragedy_deserialize_rejects_invalid() {
+        // extraction_cost >= resource_capacity is invalid
+        let json = r#"{"player_count":3,"resource_capacity":100.0,"extraction_cost":200.0}"#;
+        let result: core::result::Result<TragedyOfCommons, _> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 }

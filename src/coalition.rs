@@ -8,13 +8,29 @@ use crate::error::{Result, SanghaError, validate_finite};
 ///
 /// Maps subsets of `player_count` players to coalition values via bitmask indexing:
 /// `values[mask]` gives `v(S)` where each bit in `mask` indicates player membership.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Deserialization validates invariants automatically.
+#[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 pub struct CoalitionGame {
     /// Number of players (max 20 for practical bitmask limits).
     pub player_count: usize,
     /// Coalition values indexed by bitmask. Length must be `2^player_count`.
     pub values: Vec<f64>,
+}
+
+impl<'de> Deserialize<'de> for CoalitionGame {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> core::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            player_count: usize,
+            values: Vec<f64>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        CoalitionGame::new(raw.player_count, raw.values).map_err(serde::de::Error::custom)
+    }
 }
 
 impl CoalitionGame {
@@ -518,5 +534,13 @@ mod tests {
     #[test]
     fn test_game_nan_values_error() {
         assert!(CoalitionGame::new(1, vec![0.0, f64::NAN]).is_err());
+    }
+
+    #[test]
+    fn test_coalition_game_deserialize_rejects_invalid() {
+        // Wrong values length: player_count=2 needs 4 values, not 2
+        let json = r#"{"player_count":2,"values":[0.0,1.0]}"#;
+        let result: core::result::Result<CoalitionGame, _> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 }
