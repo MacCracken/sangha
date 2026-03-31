@@ -1,4 +1,4 @@
-.PHONY: check fmt clippy test audit deny bench coverage build doc clean
+.PHONY: check fmt clippy test audit deny bench coverage coverage-check build doc clean
 
 check: fmt clippy test audit
 
@@ -23,6 +23,9 @@ bench:
 
 coverage:
 	cargo llvm-cov --all-features --html --output-dir coverage/
+
+coverage-check:
+	./scripts/coverage-check.sh 70
 
 build:
 	cargo build --release --all-features

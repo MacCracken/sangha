@@ -1,5 +1,12 @@
 # Security Policy
 
+## Supported Versions
+
+| Version | Supported |
+|---------|-----------|
+| 1.x     | Yes       |
+| < 1.0   | No        |
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in this project, please report it
@@ -26,6 +33,18 @@ responsibly through **GitHub Security Advisories**:
 This policy covers the published API. Vulnerabilities in dependencies should
 be reported to the respective upstream projects (and flagged here if they
 affect users).
+
+## Design Principles
+
+Sangha follows these security-relevant design principles:
+
+- **Zero panics**: No `unwrap()`, `expect()`, or unchecked indexing in library code. All operations return `Result`.
+- **Input validation at boundaries**: Every public function validates parameters before computation. NaN, infinity, negative values, and out-of-bounds indices are rejected.
+- **No I/O**: Pure computation library with no file, network, or system access.
+- **Minimal dependencies**: Only `serde`, `thiserror`, and `tracing` as required dependencies. Optional dependencies are feature-gated.
+- **Supply chain**: `cargo-audit` (advisory database), `cargo-deny` (license + ban + source verification), and CI-enforced security scanning on every push.
+- **Checked arithmetic**: Floating-point validation via `validate_finite`, `validate_positive`, `validate_non_negative` helpers. No silent NaN propagation.
+- **Serde safety**: Types with invariants provide `validate()` methods for post-deserialization checking. Consumers should call `validate()` after deserializing untrusted data.
 
 ## Disclosure
 

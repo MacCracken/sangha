@@ -3,12 +3,18 @@
 //! **सङ्घ** (Sanskrit: community, assembly)
 //!
 //! A Rust library for computational sociology: social networks, game theory,
-//! group dynamics, population models, opinion dynamics, and inequality.
+//! group dynamics, population models, opinion dynamics, inequality,
+//! coalition formation, collective decision-making, trust, and contagion.
 //!
 //! ## Modules
 //!
-//! - [`network`] — Social network graphs, Watts-Strogatz, clustering
+//! - [`network`] — Social network graphs, Watts-Strogatz, Barabasi-Albert, BFS, centrality
 //! - [`game_theory`] — Nash equilibria, prisoner's dilemma, iterated games
+//! - [`coordination`] — N-player public goods, auctions, tragedy of the commons, folk theorem
+//! - [`coalition`] — Shapley value, core stability, faction merge/split
+//! - [`collective`] — Voting (plurality, Borda, Condorcet), jury theorem, wisdom of crowds
+//! - [`trust`] — Trust propagation, reputation aggregation, decay, betrayal
+//! - [`contagion`] — Hatfield emotional contagion, SIS dynamics, mood propagation
 //! - [`opinion`] — Bounded confidence, echo chambers, consensus
 //! - [`group`] — Tuckman stages, social loafing, groupthink
 //! - [`population`] — Logistic growth, SIR model, herd immunity
